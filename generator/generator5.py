@@ -296,10 +296,9 @@ def make_finfet(size, rng, density):
     }
 
 
-def make_die(size, rng):
-    architecture = rng.choice(
-        ["DRAM", "DRAM", "DRAM", "FinFET"]
-    )
+def make_die(size, rng, architecture_style):
+    """Generate one die using the requested architecture style."""
+    architecture = architecture_style
     density = rng.choice(
         ["very_fine", "fine", "medium", "coarse"]
     )
@@ -327,7 +326,7 @@ def make_die(size, rng):
 # COMPLETE PHYSICAL SCENE
 # ============================================================
 
-def build_complete_scene(rng):
+def build_complete_scene(rng, architecture_style):
     """
     Generate the entire 10000x10000 physical scene FIRST.
 
@@ -352,7 +351,8 @@ def build_complete_scene(rng):
 
             die, info = make_die(
                 die_w,
-                rng
+                rng,
+                architecture_style
             )
 
             scene[
@@ -819,7 +819,14 @@ def make_visualization(
 # PAIR GENERATION
 # ============================================================
 
-def generate_pair(pair_id, seed):
+def generate_pair(
+    pair_id,
+    seed,
+    architecture_style,
+    reference_dir,
+    search_dir,
+    vis_dir,
+):
     """
     THE IMPORTANT PIPELINE:
 
@@ -844,7 +851,10 @@ def generate_pair(pair_id, seed):
     # --------------------------------------------------------
     # 1. COMPLETE SCENE FIRST.
     # --------------------------------------------------------
-    physical_scene, dies = build_complete_scene(rng)
+    physical_scene, dies = build_complete_scene(
+        rng,
+        architecture_style
+    )
 
     # --------------------------------------------------------
     # 2. SELECT NATURAL TARGET FROM EXISTING SCENE.
@@ -984,17 +994,17 @@ def generate_pair(pair_id, seed):
     # 7. SAVE.
     # --------------------------------------------------------
     ref_path = (
-        REFERENCE_DIR
+        reference_dir
         / f"reference_{pair_id:04d}.png"
     )
 
     search_path = (
-        SEARCH_DIR
+        search_dir
         / f"search_{pair_id:04d}.png"
     )
 
     vis_path = (
-        VIS_DIR
+        vis_dir
         / f"pair_{pair_id:04d}.png"
     )
 
@@ -1103,16 +1113,20 @@ def generate_pair(pair_id, seed):
 # OUTPUT
 # ============================================================
 
-def prepare_output():
-    OUTPUT_ROOT.mkdir(
+def prepare_output(output_root):
+    output_root.mkdir(
         parents=True,
         exist_ok=True
     )
 
+    reference_dir = output_root / "reference"
+    search_dir = output_root / "search"
+    vis_dir = output_root / "visualization"
+
     for directory in [
-        REFERENCE_DIR,
-        SEARCH_DIR,
-        VIS_DIR
+        reference_dir,
+        search_dir,
+        vis_dir
     ]:
         directory.mkdir(
             parents=True,
@@ -1134,15 +1148,32 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
+        "--architecture",
+        "--architecture-style",
+        dest="architecture",
+        choices=["DRAM", "FinFET"],
+        required=True,
+        help="Semiconductor architecture style to generate: DRAM or FinFET."
+    )
+
+    parser.add_argument(
         "--pairs",
         type=int,
-        default=DEFAULT_PAIRS
+        required=True,
+        help="Number of reference/search image pairs to generate."
+    )
+
+    parser.add_argument(
+        "--output-dir",
+        required=True,
+        help="Directory in which reference, search, visualization, and metadata are written."
     )
 
     parser.add_argument(
         "--seed",
         type=int,
-        default=SEED
+        default=SEED,
+        help=f"Random seed. Default: {SEED}"
     )
 
     args = parser.parse_args()
@@ -1152,11 +1183,18 @@ def main():
             "--pairs must be greater than zero"
         )
 
+    output_root = Path(args.output_dir).expanduser().resolve()
+    reference_dir = output_root / "reference"
+    search_dir = output_root / "search"
+    vis_dir = output_root / "visualization"
+
     print("=" * 76)
     print("SEMICON / DRIFT-SENSE")
     print("GENERATOR5 - PHYSICAL SCENE FIRST")
     print("=" * 76)
+    print(f"Architecture      : {args.architecture}")
     print(f"Pairs             : {args.pairs}")
+    print(f"Output directory  : {output_root}")
     print(f"Reference         : {REFERENCE_SIZE} x {REFERENCE_SIZE}")
     print(f"Search            : {SEARCH_SIZE} x {SEARCH_SIZE}")
     print(
@@ -1182,7 +1220,7 @@ def main():
     )
     print()
 
-    prepare_output()
+    prepare_output(output_root)
 
     records = []
 
@@ -1197,7 +1235,11 @@ def main():
 
         record = generate_pair(
             pair_id,
-            pair_seed
+            pair_seed,
+            args.architecture,
+            reference_dir,
+            search_dir,
+            vis_dir,
         )
 
         records.append(record)
@@ -1212,7 +1254,7 @@ def main():
         )
 
     with open(
-        OUTPUT_ROOT / "metadata.json",
+        output_root / "metadata.json",
         "w",
         encoding="utf-8"
     ) as f:
@@ -1226,6 +1268,8 @@ def main():
         "generator": "generator5.py",
         "seed": args.seed,
         "pairs": args.pairs,
+        "architecture": args.architecture,
+        "output_directory": str(output_root),
 
         "reference_size": [
             REFERENCE_SIZE,
@@ -1274,7 +1318,7 @@ def main():
     }
 
     with open(
-        OUTPUT_ROOT / "generation_config.json",
+        output_root / "generation_config.json",
         "w",
         encoding="utf-8"
     ) as f:
@@ -1288,12 +1332,12 @@ def main():
     print("=" * 76)
     print("GENERATION COMPLETE")
     print("=" * 76)
-    print(f"Reference     : {REFERENCE_DIR}")
-    print(f"Search        : {SEARCH_DIR}")
-    print(f"Visualization : {VIS_DIR}")
+    print(f"Reference     : {reference_dir}")
+    print(f"Search        : {search_dir}")
+    print(f"Visualization : {vis_dir}")
     print(
         f"Metadata      : "
-        f"{OUTPUT_ROOT / 'metadata.json'}"
+        f"{output_root / 'metadata.json'}"
     )
     print()
     print(

@@ -1,263 +1,124 @@
-# SEMICON / DRIFT-SENSE — Inference Manual
+# SEMICON / DRIFT-SENSE
+# Model D Localization Manual
 
-## 1. Overview
+## 1. Purpose
 
-The SEMICON / DRIFT-SENSE inference program takes:
+`localization/localize.py` is the standalone inference program for the
+trained Model D localization system.
 
-1. A reference image
-2. A search image
-3. A trained Model D checkpoint
+It accepts a reference SEM image, a search SEM image, and a trained Model D
+checkpoint, then predicts the center of the reference pattern in the search
+image.
 
-and predicts the target center `(X, Y)` inside the search image.
+The script contains the Model D architecture required to load the supplied
+checkpoint. Therefore, **`train_model_D.py` is not required during inference**.
 
-The current Model D inference expects both input images to be **1000 × 1000 pixels**.
+The training source remains in the repository for reproducibility and the
+training-code submission requirement.
 
-## 2. Folder Structure
+## 2. Required Inference Files
+
+The minimum inference package is:
 
 ```text
-semicon_submission/
-│
-├── inference/
-│   └── localize.py
-│
-├── training/
-│   └── train_model_D.py
-│
-├── models/
+localize.py
+model.pt
+```
+
+The reference and search images can be anywhere.
+
+Example:
+
+```text
+D:\SEMICON\
+├── model\
 │   └── model.pt
-│
-├── generator/
-│   ├── generator5.py
-│   ├── augment_generator5.py
-│   ├── fix_generator5_filename_pairing.py
-│   ├── prepare_generator5_training_metadata.py
-│   └── validate_generator5_dataset.py
-│
-├── references/
-├── results/
-├── requirements.txt
-└── README.md
+├── inference\
+│   └── localize.py
+└── images\
+    ├── reference.png
+    └── search.png
 ```
 
-### Files required specifically for inference
+## 3. Environment
+
+Recommended:
 
 ```text
-inference/localize.py
-training/train_model_D.py
-models/model.pt
+Python 3.10+
 ```
 
-`localize.py` loads the exact `ModelD` architecture from
-`training/train_model_D.py`. Keep these two files together.
+Install repository dependencies:
 
-## 3. Required Environment
-
-- Python 3.x
-- PyTorch
-- NumPy
-- OpenCV
-
-The repository also includes pandas for the training/evaluation utilities.
-
-Install dependencies:
-
-```cmd
+```bat
 pip install -r requirements.txt
 ```
 
-The current `requirements.txt` contains:
+The inference program uses PyTorch, NumPy, and OpenCV.
+
+CPU inference is supported. CUDA is used automatically when a compatible
+CUDA-enabled PyTorch installation and GPU are available.
+
+## 4. Image Requirements
 
 ```text
-numpy
-opencv-python
-pandas
-torch
+Reference image : 1000 × 1000 pixels
+Search image    : 1000 × 1000 pixels
 ```
 
-A GPU is **not required** for inference. The program uses CUDA when
-available and otherwise runs on CPU.
+Images are processed as grayscale.
 
-## 4. Model Checkpoint
+## 5. Command
 
-The default trained model is:
+General form:
 
-```text
-models/model.pt
+```bat
+python localize.py ^
+  --reference "<REFERENCE_PATH>" ^
+  --search "<SEARCH_PATH>" ^
+  --model "<MODEL_PATH>"
 ```
-
-The model may also be stored anywhere else. Its location can be
-supplied at runtime with `--model`; `localize.py` does not need to be
-edited.
-
-## 5. Input Image Requirements
-
-The program requires:
-
-- **Reference image** — the pattern/template to be localized.
-- **Search image** — the image in which the target is located.
-
-Both images must currently be:
-
-```text
-1000 × 1000 pixels
-```
-
-The program internally resizes them for Model D processing.
-
-## 6. Basic Inference Command
-
-From the repository root:
-
-```cmd
-python inference\localize.py ^
-  --reference "PATH_TO_REFERENCE_IMAGE" ^
-  --search "PATH_TO_SEARCH_IMAGE"
-```
-
-If `--model` is omitted, the program automatically uses:
-
-```text
-models\model.pt
-```
-
-## 7. Command-Line Arguments
-
-### `--reference`
-
-Replace the value with the reference image path.
 
 Example:
 
-```cmd
---reference "E:\images\reference.png"
+```bat
+python localize.py ^
+  --reference "D:\images\reference.png" ^
+  --search "F:\test_data\search.png" ^
+  --model "E:\semicon\semicon_submission\models\model.pt"
 ```
 
-### `--search`
+The three paths may be completely different locations.
 
-Replace the value with the search image path.
+## 6. Running From the Repository
 
-Example:
-
-```cmd
---search "E:\images\search.png"
-```
-
-### `--model`
-
-Optional path to the trained checkpoint.
-
-Example:
-
-```cmd
---model "D:\trained_models\model.pt"
-```
-
-This allows the model location to be changed every time the program is
-run without changing the Python source code.
-
-## 8. Complete Example — Default Model
-
-If:
+From:
 
 ```text
-Reference:
-E:\semicon\generator5_augmented\reference\0001_aug_01_rotation.png
-
-Search:
-E:\semicon\generator5_augmented\search\0001_aug_01_rotation.png
-
-Model:
-E:\semicon\semicon_submission\models\model.pt
+E:\semicon\semicon_submission
 ```
 
 run:
 
-```cmd
-cd /d E:\semicon\semicon_submission
-
-python inference\localize.py ^
-  --reference "E:\semicon\generator5_augmented\reference\0001_aug_01_rotation.png" ^
-  --search "E:\semicon\generator5_augmented\search\0001_aug_01_rotation.png"
+```bat
+python localization\localize.py ^
+  --reference "D:\reference.png" ^
+  --search "D:\search.png" ^
+  --model "E:\semicon\semicon_submission\models\model.pt"
 ```
 
-Because the model is in `models\model.pt`, `--model` is optional.
+## 7. Expected Output
 
-## 9. Complete Example — Custom Model Location
-
-If the model is stored at:
-
-```text
-D:\trained_models\semicon_model.pt
-```
-
-run:
-
-```cmd
-python inference\localize.py ^
-  --reference "E:\images\reference.png" ^
-  --search "E:\images\search.png" ^
-  --model "D:\trained_models\semicon_model.pt"
-```
-
-Only the paths need to be changed.
-
-## 10. Command Template
-
-```cmd
-python inference\localize.py ^
-  --reference "YOUR_REFERENCE_IMAGE_PATH" ^
-  --search "YOUR_SEARCH_IMAGE_PATH" ^
-  --model "YOUR_MODEL_PATH"
-```
-
-If using the default `models\model.pt`, omit the `--model` line:
-
-```cmd
-python inference\localize.py ^
-  --reference "YOUR_REFERENCE_IMAGE_PATH" ^
-  --search "YOUR_SEARCH_IMAGE_PATH"
-```
-
-### What must be changed?
-
-Change:
-
-```text
-YOUR_REFERENCE_IMAGE_PATH
-```
-
-to the actual reference image location.
-
-Change:
-
-```text
-YOUR_SEARCH_IMAGE_PATH
-```
-
-to the actual search image location.
-
-Optionally change:
-
-```text
-YOUR_MODEL_PATH
-```
-
-to the location of the trained checkpoint.
-
-Do not change the `--reference`, `--search`, or `--model` option names.
-
-## 11. Expected Output
-
-A successful run produces output similar to:
+A successful run displays approximately:
 
 ```text
 ========================================================================
 SEMICON / DRIFT-SENSE
 MODEL D LOCALIZATION INFERENCE
 ========================================================================
-Reference : ...
-Search    : ...
-Model     : ...
+Reference : D:\reference.png
+Search    : D:\search.png
+Model     : E:\semicon\semicon_submission\models\model.pt
 Input     : 1000 x 1000 px
 Method    : Model D spatial correlation
 Decoder   : Soft-Argmax
@@ -274,73 +135,163 @@ LOCALIZATION COMPLETE
 ========================================================================
 ```
 
-The predicted coordinates are the estimated target center in the
-original 1000 × 1000 search image.
+The predicted coordinates are in the original **1000 × 1000 pixel**
+coordinate system.
 
-For example:
-
-```text
-Predicted center X : 649.72 px
-Predicted center Y : 496.84 px
-```
-
-means:
+## 8. Coordinate Convention
 
 ```text
-(X, Y) = (649.72, 496.84)
+(0,0) ───────────────────────→ X
+  │
+  │
+  │
+  ↓
+  Y
 ```
 
-## 12. Quick Start
-
-### Step 1 — Download or clone the repository
-
-Verify the folder structure and the presence of `models/model.pt`.
-
-### Step 2 — Install dependencies
-
-```cmd
-pip install -r requirements.txt
-```
-
-### Step 3 — Enter the repository
-
-```cmd
-cd /d E:\semicon\semicon_submission
-```
-
-### Step 4 — Run inference
-
-```cmd
-python inference\localize.py ^
-  --reference "PATH_TO_REFERENCE_IMAGE" ^
-  --search "PATH_TO_SEARCH_IMAGE"
-```
-
-### Step 5 — If the model is elsewhere
-
-```cmd
-python inference\localize.py ^
-  --reference "PATH_TO_REFERENCE_IMAGE" ^
-  --search "PATH_TO_SEARCH_IMAGE" ^
-  --model "PATH_TO_MODEL"
-```
-
-### Step 6 — Read the result
-
-Use:
+For a 1000 × 1000 image:
 
 ```text
-Predicted center X
-Predicted center Y
+X: 0–999 px
+Y: 0–999 px
 ```
 
-as the predicted localization coordinate.
+## 9. Model Architecture
 
-## 13. Important Notes
+Model D uses:
 
-- Reference and search images must be 1000 × 1000 pixels for the current implementation.
-- The checkpoint must match the `ModelD` architecture in `training/train_model_D.py`.
-- Do not modify the Model D architecture when using the supplied checkpoint.
-- The model path can be changed at runtime using `--model`.
-- A CUDA GPU is optional for inference.
-- The inference program does not require the training dataset or CSV files.
+- CNN-based feature extraction
+- Spatial correlation
+- Correlation score-map generation
+- Soft-argmax coordinate decoding
+
+The standalone inference file contains the architecture needed to load
+`model.pt`.
+
+## 10. Training Files
+
+The repository also contains:
+
+```text
+training/train_model_D.py
+training/semicon.ipynb
+```
+
+These are provided for training reproducibility and submission requirements.
+They are not required for standalone inference.
+
+## 11. Thirty Test Cases
+
+Clean test inputs are stored under:
+
+```text
+test_cases/test cases/
+```
+
+Each case contains:
+
+```text
+reference.png
+search.png
+```
+
+Example:
+
+```bat
+python localization\localize.py ^
+  --reference "test_cases\test cases\case_01\reference.png" ^
+  --search "test_cases\test cases\case_01\search.png" ^
+  --model "models\model.pt"
+```
+
+Generated result visualizations are stored separately under:
+
+```text
+test_cases/test results/
+```
+
+## 12. Troubleshooting
+
+### `--model` is unrecognized
+
+Run:
+
+```bat
+python localize.py --help
+```
+
+The current standalone file must show:
+
+```text
+--reference
+--search
+--model
+```
+
+If it only shows the older arguments, replace the old `localize.py` with the
+current standalone version.
+
+### Training file not found
+
+If the program asks for:
+
+```text
+training\train_model_D.py
+```
+
+you are running the older non-standalone inference script. Replace it with
+the current standalone `localize.py`.
+
+### Checkpoint mismatch
+
+If you see missing keys, unexpected keys, or size mismatches, verify that:
+
+1. `model.pt` is the final Model D checkpoint.
+2. You are using the current standalone `localize.py`.
+3. The checkpoint has not been replaced by a different model.
+
+### Image not found
+
+Check paths with:
+
+```bat
+dir "D:\reference.png"
+dir "D:\search.png"
+dir "E:\semicon\semicon_submission\models\model.pt"
+```
+
+Use quotes around paths containing spaces.
+
+### CPU output
+
+```text
+Device : cpu
+```
+
+is normal. CUDA is optional for inference.
+
+## 13. Final Checklist
+
+- [ ] Current standalone `localize.py`
+- [ ] Correct Model D `model.pt`
+- [ ] Reference image exists
+- [ ] Search image exists
+- [ ] Both images are 1000 × 1000
+- [ ] Python environment installed
+- [ ] Requirements installed
+- [ ] Command paths are correct
+
+Run:
+
+```bat
+python localize.py ^
+  --reference "<REFERENCE>" ^
+  --search "<SEARCH>" ^
+  --model "<MODEL>"
+```
+
+A successful run ends with:
+
+```text
+LOCALIZATION COMPLETE
+```
