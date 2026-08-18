@@ -1,182 +1,438 @@
 """
-SEMICON / DRIFT-SENSE - Standalone Localization Inference
+SEMICON / DRIFT-SENSE
+MODEL D STANDALONE LOCALIZATION INFERENCE
+
+This inference script imports the EXACT ModelD implementation from
+train_model_D.py, then loads models/model.pt.
+
+Expected repository layout:
+
+semicon_submission/
+├── models/
+│   └── model.pt
+├── training/
+│   └── train_model_D.py
+└── inference/
+    └── localize.py
 
 Usage:
-    python localize.py --reference reference.png --search search.png
 
-This standalone fallback uses the same classical NCC idea as the
-Generator 5 baseline: the reference is resized to 100x100 pixels and
-matched against the full search image using TM_CCOEFF_NORMED.
+python inference\localize.py ^
+  --reference "path\to\reference.png" ^
+  --search "path\to\search.png"
 
-It requires only OpenCV and NumPy. No CSV, metadata, dataset, or
-trained model weights are required.
+The reference and search images must be 1000 x 1000 pixels.
+
+The output is the predicted target center in the original
+1000 x 1000 image coordinate system.
 """
 
 import argparse
+import importlib.util
 import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
+import torch
+import torch.nn.functional as F
 
-REFERENCE_SIZE = 100
-METHOD = cv2.TM_CCOEFF_NORMED
+
+RAW_SIZE = 1000
+INTERNAL_SIZE = 128
+
+HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parent
+
+DEFAULT_MODEL = (
+    REPO_ROOT
+    / "models"
+    / "model.pt"
+)
+
+TRAIN_MODEL_D = (
+    REPO_ROOT
+    / "training"
+    / "train_model_D.py"
+)
 
 
-def read_gray(path):
+def load_original_model_class():
+
+    if not TRAIN_MODEL_D.exists():
+        raise FileNotFoundError(
+            "The exact Model D training file was not found:\n"
+            f"{TRAIN_MODEL_D}\n\n"
+            "Place train_model_D.py inside the repository's "
+            "training folder."
+        )
+
+    spec = importlib.util.spec_from_file_location(
+        "semicon_original_model_D",
+        str(TRAIN_MODEL_D),
+    )
+
+    if spec is None or spec.loader is None:
+        raise RuntimeError(
+            "Could not load train_model_D.py."
+        )
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    if not hasattr(module, "ModelD"):
+        raise RuntimeError(
+            "train_model_D.py does not contain a ModelD class."
+        )
+
+    return module.ModelD
+
+
+def read_image(path):
+
     path = Path(path)
+
     if not path.exists():
-        raise FileNotFoundError(f"Image not found:\n{path}")
+        raise FileNotFoundError(
+            f"Image not found:\n{path}"
+        )
 
-    image = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+    image = cv2.imread(
+        str(path),
+        cv2.IMREAD_GRAYSCALE,
+    )
+
     if image is None:
-        raise RuntimeError(f"OpenCV could not read image:\n{path}")
-    if image.size == 0:
-        raise RuntimeError(f"Image is empty:\n{path}")
-    return image
+        raise RuntimeError(
+            f"Could not read image:\n{path}"
+        )
 
+    if image.shape != (
+        RAW_SIZE,
+        RAW_SIZE,
+    ):
+        raise ValueError(
+            f"Expected a {RAW_SIZE} x {RAW_SIZE} image, "
+            f"but received {image.shape}:\n{path}"
+        )
 
-def run_ncc(reference, search):
-    template = cv2.resize(
-        reference,
-        (REFERENCE_SIZE, REFERENCE_SIZE),
+    image = cv2.resize(
+        image,
+        (
+            INTERNAL_SIZE,
+            INTERNAL_SIZE,
+        ),
         interpolation=cv2.INTER_AREA,
     )
 
-    if (template.shape[0] > search.shape[0] or
-            template.shape[1] > search.shape[1]):
-        raise ValueError(
-            "Reference template is larger than the search image."
-        )
-
-    response = cv2.matchTemplate(
-        search,
-        template,
-        METHOD,
+    image = (
+        image.astype(np.float32)
+        / 255.0
     )
 
-    _, max_score, _, max_location = cv2.minMaxLoc(response)
-
-    x = int(max_location[0])
-    y = int(max_location[1])
-
-    return response, float(max_score), x, y
+    return torch.from_numpy(
+        image
+    ).unsqueeze(0).unsqueeze(0)
 
 
-def top_k_peaks(response, k):
-    work = response.copy()
-    results = []
+def load_model(
+    model_class,
+    model_path,
+    device,
+):
 
-    half = REFERENCE_SIZE // 2
+    model_path = Path(model_path)
 
-    for _ in range(k):
-        _, score, _, location = cv2.minMaxLoc(work)
+    if not model_path.exists():
+        raise FileNotFoundError(
+            "Model checkpoint not found:\n"
+            f"{model_path}"
+        )
 
-        x = int(location[0])
-        y = int(location[1])
+    checkpoint = torch.load(
+        model_path,
+        map_location=device,
+    )
 
-        results.append({
-            "score": float(score),
-            "x": float(x + REFERENCE_SIZE / 2.0),
-            "y": float(y + REFERENCE_SIZE / 2.0),
-        })
+    if (
+        isinstance(checkpoint, dict)
+        and "model_state_dict" in checkpoint
+    ):
+        state_dict = checkpoint[
+            "model_state_dict"
+        ]
+    else:
+        state_dict = checkpoint
 
-        y0 = max(0, y - half)
-        y1 = min(work.shape[0], y + half + 1)
-        x0 = max(0, x - half)
-        x1 = min(work.shape[1], x + half + 1)
-        work[y0:y1, x0:x1] = -1.0
+    model = model_class().to(device)
 
-    return results
+    model.load_state_dict(
+        state_dict,
+        strict=True,
+    )
+
+    model.eval()
+
+    return model
+
+
+def extract_score_map(output):
+
+    # Different training scripts sometimes return a tuple.
+    # The first tensor is the spatial score map.
+    if isinstance(output, (tuple, list)):
+        output = output[0]
+
+    if not torch.is_tensor(output):
+        raise RuntimeError(
+            "Model D did not return a tensor score map."
+        )
+
+    if output.ndim == 3:
+        output = output.unsqueeze(1)
+
+    if output.ndim != 4:
+        raise RuntimeError(
+            "Unexpected Model D output shape: "
+            f"{tuple(output.shape)}"
+        )
+
+    return output
+
+
+def soft_argmax(
+    score_map,
+    temperature=0.05,
+):
+
+    batch, _, height, width = (
+        score_map.shape
+    )
+
+    probabilities = F.softmax(
+        score_map.reshape(
+            batch,
+            -1,
+        )
+        / temperature,
+        dim=1,
+    )
+
+    yy, xx = torch.meshgrid(
+        torch.arange(
+            height,
+            device=score_map.device,
+            dtype=torch.float32,
+        ),
+        torch.arange(
+            width,
+            device=score_map.device,
+            dtype=torch.float32,
+        ),
+        indexing="ij",
+    )
+
+    xx = xx.reshape(1, -1)
+    yy = yy.reshape(1, -1)
+
+    px = (
+        probabilities * xx
+    ).sum(dim=1)
+
+    py = (
+        probabilities * yy
+    ).sum(dim=1)
+
+    # Convert the internal score-map coordinate to the
+    # original 1000 x 1000 image coordinate system.
+    if width > 1:
+        px = (
+            px
+            / (width - 1)
+            * (RAW_SIZE - 1)
+        )
+
+    if height > 1:
+        py = (
+            py
+            / (height - 1)
+            * (RAW_SIZE - 1)
+        )
+
+    return torch.stack(
+        [px, py],
+        dim=1,
+    )
 
 
 def main():
+
     parser = argparse.ArgumentParser(
         description=(
-            "Locate a reference pattern inside a search image "
-            "using normalized cross-correlation."
+            "SEMICON Model D localization inference."
         )
     )
 
     parser.add_argument(
         "--reference",
         required=True,
-        help="Path to the reference image.",
+        help="Path to the 1000 x 1000 reference image.",
     )
+
     parser.add_argument(
         "--search",
         required=True,
-        help="Path to the search image.",
+        help="Path to the 1000 x 1000 search image.",
     )
+
     parser.add_argument(
-        "--top-k",
-        type=int,
-        default=1,
-        help="Number of matches to report. Default: 1.",
+        "--model",
+        default=str(DEFAULT_MODEL),
+        help=(
+            "Path to the trained Model D checkpoint. "
+            "Default: ../models/model.pt"
+        ),
+    )
+
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.05,
+        help=(
+            "Soft-argmax temperature. "
+            "Default: 0.05"
+        ),
     )
 
     args = parser.parse_args()
 
-    if args.top_k < 1:
-        parser.error("--top-k must be at least 1")
+    print("=" * 72)
+    print(
+        "SEMICON / DRIFT-SENSE"
+    )
+    print(
+        "MODEL D LOCALIZATION INFERENCE"
+    )
+    print("=" * 72)
 
-    print("=" * 72)
-    print("SEMICON / DRIFT-SENSE")
-    print("STANDALONE LOCALIZATION INFERENCE")
-    print("=" * 72)
-    print(f"Reference : {args.reference}")
-    print(f"Search    : {args.search}")
-    print(f"Template  : {REFERENCE_SIZE} x {REFERENCE_SIZE} px")
-    print("Method    : TM_CCOEFF_NORMED")
-    print("Search    : FULL IMAGE")
+    print(
+        f"Reference : {args.reference}"
+    )
+
+    print(
+        f"Search    : {args.search}"
+    )
+
+    print(
+        f"Model     : {args.model}"
+    )
+
+    print(
+        f"Input     : {RAW_SIZE} x {RAW_SIZE} px"
+    )
+
+    print(
+        "Method    : Model D spatial correlation"
+    )
+
+    print(
+        "Decoder   : Soft-Argmax"
+    )
+
+    print()
+
+    device = torch.device(
+        "cuda"
+        if torch.cuda.is_available()
+        else "cpu"
+    )
+
+    print(
+        f"Device    : {device}"
+    )
+
     print()
 
     try:
-        reference = read_gray(args.reference)
-        search = read_gray(args.search)
 
-        response, score, top_left_x, top_left_y = run_ncc(
-            reference,
-            search,
+        reference = read_image(
+            args.reference
+        ).to(device)
+
+        search = read_image(
+            args.search
+        ).to(device)
+
+        ModelD = load_original_model_class()
+
+        model = load_model(
+            ModelD,
+            args.model,
+            device,
+        )
+
+        with torch.no_grad():
+
+            output = model(
+                reference,
+                search,
+            )
+
+            score_map = extract_score_map(
+                output
+            )
+
+            prediction = soft_argmax(
+                score_map,
+                temperature=args.temperature,
+            )
+
+        predicted_x = float(
+            prediction[0, 0].cpu()
+        )
+
+        predicted_y = float(
+            prediction[0, 1].cpu()
         )
 
     except Exception as exc:
-        print("INFERENCE FAILED")
+
+        print(
+            "INFERENCE FAILED"
+        )
+
         print("-" * 72)
-        print(str(exc))
+
+        print(
+            str(exc)
+        )
+
         return 1
 
-    center_x = top_left_x + REFERENCE_SIZE / 2.0
-    center_y = top_left_y + REFERENCE_SIZE / 2.0
-
-    print("RESULT")
-    print("-" * 72)
-    print(f"Predicted center X : {center_x:.2f} px")
-    print(f"Predicted center Y : {center_y:.2f} px")
-    print(f"NCC score          : {score:.6f}")
     print(
-        f"Matched top-left   : "
-        f"({top_left_x}, {top_left_y})"
+        "RESULT"
     )
 
-    if args.top_k > 1:
-        print()
-        print(f"TOP-{args.top_k} MATCHES")
-        print("-" * 72)
+    print("-" * 72)
 
-        for rank, item in enumerate(
-            top_k_peaks(response, args.top_k),
-            start=1,
-        ):
-            print(
-                f"{rank}. "
-                f"center=({item['x']:.2f}, {item['y']:.2f}) "
-                f"score={item['score']:.6f}"
-            )
+    print(
+        f"Predicted center X : "
+        f"{predicted_x:.2f} px"
+    )
+
+    print(
+        f"Predicted center Y : "
+        f"{predicted_y:.2f} px"
+    )
 
     print()
+
     print("=" * 72)
-    print("LOCALIZATION COMPLETE")
+
+    print(
+        "LOCALIZATION COMPLETE"
+    )
+
     print("=" * 72)
 
     return 0

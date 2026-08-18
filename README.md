@@ -2,9 +2,11 @@
 
 ## Reference-Pattern Localization in Search Images
 
-**SEMICON** is a computer-vision project developed at **Chennai Institute of Technology** for locating a selected reference pattern inside a larger search image and estimating its position as image coordinates `(x, y)`.
+**SEMICON** is a computer-vision project developed at **Chennai Institute of Technology** for locating a selected reference pattern inside a search SEM image and estimating its center position as image coordinates `(x, y)`.
 
-The project investigates both a classical computer-vision baseline and deep-learning approaches for robust localization under image transformations and periodic/repetitive structures.
+The final submitted system uses a **CNN-based spatial-correlation localization model (Model D)**. The model receives a reference image and a search image and produces a spatial score map from which the target center is estimated using **soft-argmax**.
+
+The project also includes the Generator 5 dataset-generation pipeline and the earlier classical/experimental training code used during development.
 
 ## Team
 
@@ -17,30 +19,23 @@ The project investigates both a classical computer-vision baseline and deep-lear
 
 ---
 
-## Project Objective
+## 1. Project Objective
 
 Given:
 
-1. a reference image containing the pattern of interest, and
-2. a larger search image containing multiple possible locations,
+1. a **reference image** containing the pattern of interest, and
+2. a **search image** containing the pattern at an unknown location,
 
-the system estimates the location of the reference pattern in the search image.
+the system estimates the center coordinate of the reference pattern inside the search image.
 
-The final localization output is expressed as the center coordinate:
+The localization output is:
 
 ```text
-(x, y)
+Predicted center X : x px
+Predicted center Y : y px
 ```
 
-in pixels of the search image.
-
-A major challenge addressed by the project is **periodic ambiguity**: visually similar blocks can occur at multiple locations, causing conventional template matching to select an incorrect but visually similar region.
-
----
-
-## Dataset and Data Pipeline
-
-The project uses a generated dataset containing reference/search image pairs. The Generator 5 pipeline was developed to create augmented examples representing several image variations, including:
+The project is designed for SEM-image localization under variations such as:
 
 - blur
 - brightness/contrast changes
@@ -50,72 +45,145 @@ The project uses a generated dataset containing reference/search image pairs. Th
 - scaling
 - shear
 
-The generated dataset is accompanied by training metadata and a fixed train/validation/test split.
-
-The repository contains the scripts used for dataset generation and preparation. 
----
-
-## Methods
-
-### 1. Classical NCC Baseline
-
-The first localization approach uses normalized cross-correlation:
-
-```text
-Reference
-    ↓
-Resize to 100 × 100
-    ↓
-Full-image template matching
-    ↓
-TM_CCOEFF_NORMED
-    ↓
-Best matching location
-    ↓
-Predicted (x, y)
-```
-
-This provides a classical baseline against which the learned models can be compared.
-
-The standalone implementation is available in:
-
-```text
-inference/localize.py
-```
-
-### 2. Model A
-
-Model A uses a shared convolutional encoder for the reference and search images followed by depthwise cross-correlation and a heatmap-based localization head.
-
-The training implementation is provided in:
-
-```text
-training/train_model_A.py
-```
-
-The model uses a coordinate-aware objective together with heatmap localization and soft-argmax coordinate extraction.
-
-### 3. Model B
-
-Model B extends the learned localization approach with hard-negative training and an InfoNCE objective. For each sample, the target block is treated as the positive while the other blocks provide hard negatives.
-
-The training implementation is provided in:
-
-```text
-training/train_model_B.py
-```
-
-The purpose of this experiment is to improve discrimination between the correct location and visually similar periodic alternatives.
+A major challenge is **periodic ambiguity**, where visually similar structures can occur at multiple locations. The learned spatial-correlation approach is designed to learn discriminative spatial features rather than relying only on raw pixel similarity.
 
 ---
 
-## Repository Structure
+## 2. Dataset and Data Pipeline
+
+The project uses the **Generator 5** synthetic dataset pipeline.
+
+Each sample contains:
 
 ```text
-SEMICON/
+Reference image
+       +
+Search image
+       +
+Ground-truth target center
+       ↓
+Training / validation / test metadata
+```
+
+The generated dataset contains augmented reference/search pairs representing image transformations such as:
+
+- rotation
+- shear
+- drift
+- noise
+- blur
+- brightness/contrast
+- scaling
+
+The final dataset used during development contains:
+
+```text
+Training   : 1680 samples
+Validation : 210 samples
+Test       : 210 samples
+```
+
+The reference and search images used for the final model are:
+
+```text
+1000 × 1000 pixels
+```
+
+The metadata CSV files are stored under:
+
+```text
+generator5_augmented/training_metadata/
+```
+
+with:
+
+```text
+train.csv
+validation.csv
+test.csv
+```
+
+---
+
+## 3. Final Model — Model D
+
+The final submitted deep-learning model is **Model D: Spatial Correlation Localization**.
+
+### Architecture
+
+```text
+Reference Image ──→ CNN Encoder ──┐
+                                  ├──→ Spatial Correlation
+Search Image ─────→ CNN Encoder ──┘
+                                           ↓
+                                  Correlation Head
+                                           ↓
+                                  Spatial Score Map
+                                           ↓
+                                     Soft-Argmax
+                                           ↓
+                                      (x, y)
+```
+
+### Model configuration
+
+```text
+Raw input                 : 1000 × 1000
+Internal image size       : 128 × 128
+Encoder channels          : 1 → 32 → 64 → 96 → 128 → 128
+Correlation               : spatial/depthwise feature correlation
+Correlation head          : 1 → 32 → 16 → 1
+Output                    : spatial score map
+Decoder                   : Soft-Argmax
+Soft-Argmax temperature   : 0.05
+Trainable parameters      : 338,369
+```
+
+The model was trained using:
+
+```text
+Optimizer                : AdamW
+Learning rate            : 0.0001
+Weight decay             : 0.0001
+Gradient clipping        : 5.0
+Batch size               : 4
+Final training run       : 20 epochs
+```
+
+The final checkpoint selected during development is the **best validation checkpoint**, rather than automatically using the last training epoch.
+
+---
+
+## 4. Final Model File
+
+The standalone submission model is stored as:
+
+```text
+models/model.pt
+```
+
+The filename `model.pt` is intentional so that the inference package has a simple, fixed default model location.
+
+If the model is moved to another location, the inference command can be supplied with the new checkpoint path when supported by the installed `localize.py`.
+
+---
+
+## 5. Repository Structure
+
+The final submission is organized as:
+
+```text
+semicon_submission/
 │
 ├── README.md
 ├── requirements.txt
+├── INFERENCE_MANUAL.md
+│
+├── models/
+│   └── model.pt
+│
+├── inference/
+│   └── localize.py
 │
 ├── generator/
 │   ├── generator5.py
@@ -124,143 +192,338 @@ SEMICON/
 │   ├── fix_generator5_filename_pairing.py
 │   └── validate_generator5_dataset.py
 │
-├── inference/
-│   └── localize.py
-│
 ├── training/
-│   ├── baseline_ncc_generator5.py
-│   ├── train_model_A.py
-│   ├── train_model_B.py
-│   └── evaluate_model_AB.py
+│   └── [development/training scripts retained as required]
 │
-├── results/
-└── references/
+├── references/
+│
+└── results/
 ```
+
+The `models/` directory contains the checkpoint required for standalone inference.
+
+Large generated datasets are not required for standalone inference.
 
 ---
 
-## Installation
+## 6. Environment Requirements
 
-Create a Python environment and install the required packages:
+Install the Python dependencies using:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-For GPU training, install a PyTorch build appropriate for the CUDA version available on the target machine.
+The inference application requires:
+
+- Python 3.x
+- PyTorch
+- NumPy
+- OpenCV
+- pandas
+
+The exact versions should be taken from `requirements.txt`.
+
+### GPU
+
+A GPU is **not required for standalone inference**.
+
+The submitted inference program can run on CPU. A CUDA-capable GPU is recommended for model training and large-scale evaluation.
 
 ---
 
-## Standalone Inference
+## 7. Standalone Inference
 
-The repository includes a standalone classical localization inference script.
+The main inference entry point is:
+
+```text
+inference/localize.py
+```
+
+It accepts two image locations:
+
+```text
+--reference
+--search
+```
+
+and loads the trained model from:
+
+```text
+models/model.pt
+```
+
+### Windows command
 
 From the repository root:
 
-```bash
-python inference/localize.py --reference path/to/reference.png --search path/to/search.png
+```bat
+python inference\localize.py ^
+  --reference "E:\path\to\reference.png" ^
+  --search "E:\path\to\search.png"
 ```
 
-Example:
+### Example
 
-```bash
-python inference/localize.py --reference examples/reference.png --search examples/search.png
+```bat
+python inference\localize.py ^
+  --reference "E:\semicon\generator5_augmented\reference\0001_aug_01_rotation.png" ^
+  --search "E:\semicon\generator5_augmented\search\0001_aug_01_rotation.png"
 ```
+
+### Expected output
 
 The program reports:
 
-- predicted center X
-- predicted center Y
-- NCC score
-- matched top-left coordinate
+```text
+SEMICON / DRIFT-SENSE
+MODEL D LOCALIZATION INFERENCE
 
-An optional top-k output can be requested:
+Reference : ...
+Search    : ...
+Model     : ...
 
-```bash
-python inference/localize.py --reference reference.png --search search.png --top-k 3
+RESULT
+------------------------------------------------------------------------
+Predicted center X : xxx.xx px
+Predicted center Y : yyy.yy px
+
+========================================================================
+LOCALIZATION COMPLETE
+========================================================================
 ```
 
-The inference script does not require the training dataset, CSV metadata, or a trained checkpoint.
+The important final outputs are the predicted center coordinates:
+
+```text
+(x, y)
+```
+
+in the coordinate system of the original **1000 × 1000** search image.
 
 ---
 
-## Training
+## 8. Changing the Model Location
 
-### Model A
-
-Training can be started with the project training script after preparing the dataset and metadata:
-
-```bash
-python training/train_model_A.py --epochs 20 --batch-size 4
-```
-
-### Model B
-
-Model B supports the hard-negative/InfoNCE training phases implemented in the script.
+The model does not need to remain physically inside the repository if the inference script supports the `--model` argument.
 
 Example:
 
-```bash
-python training/train_model_B.py --data-root /path/to/generator5_augmented --phase 2 --epochs 20 --batch-size 8
+```bat
+python inference\localize.py ^
+  --model "E:\my_models\model.pt" ^
+  --reference "E:\images\reference.png" ^
+  --search "E:\images\search.png"
 ```
 
-The exact dataset paths can be supplied through the command-line arguments supported by each training script.
-
----
-
-## Classical Baseline Evaluation
-
-The NCC baseline can be evaluated using:
-
-```bash
-python training/baseline_ncc_generator5.py
-```
-
-The evaluation uses the prepared test metadata and reports localization error and block-level matching metrics.
-
----
-
-## Model A vs Model B Evaluation
-
-The evaluation utility compares the trained learned models on the fixed test split:
-
-```bash
-python training/evaluate_model_AB.py --data-root /path/to/generator5_augmented --device cuda
-```
-
-It is an evaluation tool rather than the standalone inference entry point.
-
----
-
-## Reproducibility
-
-The project separates the workflow into:
+If `--model` is omitted, the default submission checkpoint is:
 
 ```text
-Dataset generation
-        ↓
-Metadata preparation
-        ↓
-Classical baseline
-        ↓
-Model A training
-        ↓
-Model B / hard-negative training
-        ↓
-Test evaluation
-        ↓
-Standalone inference
+models/model.pt
 ```
 
-The repository contains the scripts required to reproduce the major processing and training stages. Large generated datasets and runtime-specific files are not included.
+This makes it possible to keep the inference code unchanged while replacing or relocating the checkpoint.
 
 ---
 
-## Current Submission Note
+## 9. Image Requirements
 
-The repository contains both the classical NCC baseline and the deep-learning training implementations. The standalone inference entry point is intentionally lightweight and does not require access to the training dataset or metadata.
+For the final model, the expected raw images are:
 
-Model checkpoint files are kept separate from the source-code repository when they are too large for normal Git storage. If a trained checkpoint is supplied separately for evaluation, its expected path should be documented alongside the corresponding model code.
+```text
+Reference : 1000 × 1000 pixels
+Search    : 1000 × 1000 pixels
+```
+
+The images should be readable by OpenCV and should normally be grayscale SEM images.
+
+The inference code performs the required preprocessing internally.
+
+The user does **not** need to manually resize the images to 128 × 128.
+
+---
+
+## 10. Training and Development
+
+Several approaches were investigated during development.
+
+### Classical NCC baseline
+
+A normalized cross-correlation approach was used as a classical baseline.
+
+The baseline helps establish the difficulty of locating a reference pattern inside a larger/repetitive search image.
+
+### Learned localization experiments
+
+Multiple CNN-based localization approaches were investigated during development, including:
+
+- direct coordinate regression
+- spatial score-map localization
+- feature correlation
+- true sliding feature correlation
+
+The final submitted learned architecture is **Model D**.
+
+The development experiments are retained separately from the standalone inference entry point.
+
+---
+
+## 11. Evaluation
+
+The official test set contains:
+
+```text
+210 samples
+```
+
+For the localization task, the primary evaluation metrics are based on coordinate error.
+
+For a ground-truth coordinate `(x, y)` and prediction `(x̂, ŷ)`:
+
+```text
+Euclidean Error
+= sqrt((x̂ - x)² + (ŷ - y)²)
+```
+
+Recommended reported metrics include:
+
+```text
+Mean Euclidean Error
+Median Euclidean Error
+Minimum Error
+Maximum Error
+Standard Deviation
+MAE-X
+MAE-Y
+RMSE-X
+RMSE-Y
+Accuracy within 5 px
+Accuracy within 10 px
+Accuracy within 25 px
+Accuracy within 50 px
+Accuracy within 100 px
+```
+
+A complete final evaluation should use **all 210 test samples**.
+
+A separate set of 30 representative samples can be used for visual demonstration, and the worst-error sample should be reported separately.
+
+---
+
+## 12. Why mAP / Confusion Matrix Are Not Primary Metrics
+
+The final model performs **continuous coordinate localization**.
+
+It predicts:
+
+```text
+(x, y)
+```
+
+rather than discrete classes or bounding boxes.
+
+Therefore:
+
+- conventional classification accuracy is not the primary metric;
+- a conventional confusion matrix is not directly applicable;
+- precision/recall/F1 are not directly applicable to the continuous coordinate output;
+- mAP@50 and mAP@95 are object-detection metrics based on bounding-box overlap and are not directly defined for this point-localization output.
+
+For this project, **Euclidean localization error and tolerance-based localization accuracy** directly measure the required task.
+
+If an external evaluation specification requires detection-style metrics, the exact specification should be followed and a corresponding bounding-box representation should be defined explicitly rather than inventing incompatible metrics.
+
+---
+
+## 13. Reproducibility
+
+The complete development workflow is:
+
+```text
+Dataset Generation
+        ↓
+Augmentation
+        ↓
+Metadata Preparation
+        ↓
+Train / Validation / Test Split
+        ↓
+Baseline and Model Experiments
+        ↓
+Model D Training
+        ↓
+Best Validation Checkpoint
+        ↓
+210-Sample Test Evaluation
+        ↓
+Standalone Inference
+```
+
+For standalone inference, only the following are required:
+
+```text
+Python environment
+        +
+requirements.txt
+        +
+inference/localize.py
+        +
+models/model.pt
+        +
+reference image
+        +
+search image
+```
+
+The training dataset and CSV metadata are **not required** to run standalone inference.
+
+---
+
+## 14. Important Submission Notes
+
+1. Keep the final checkpoint at:
+
+```text
+models/model.pt
+```
+
+2. Keep the inference entry point at:
+
+```text
+inference/localize.py
+```
+
+3. Do not modify the model architecture in `localize.py` unless the checkpoint architecture is changed at the same time.
+
+4. If `model.pt` is moved, provide its new location through the supported model-path option or restore it to:
+
+```text
+models/model.pt
+```
+
+5. Reference and search images used for inference should be 1000 × 1000 pixels.
+
+6. The reported final test metrics must be calculated on the complete 210-image test split.
+
+---
+
+## 15. Project Status
+
+The final submission focuses on:
+
+```text
+Model D
+   ↓
+Spatial correlation
+   ↓
+Localization score map
+   ↓
+Soft-argmax
+   ↓
+Predicted (x, y)
+```
+
+The repository separates **training/development code** from the **standalone inference application**, allowing the trained model to be demonstrated without requiring the complete training dataset.
 
 ---
 
