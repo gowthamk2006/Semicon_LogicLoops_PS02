@@ -1,116 +1,313 @@
 """
 SEMICON / DRIFT-SENSE
-MODEL D STANDALONE LOCALIZATION INFERENCE
+MODEL D SELF-CONTAINED LOCALIZATION INFERENCE
 
-This inference script imports the EXACT ModelD implementation from
-train_model_D.py, then loads models/model.pt.
+This file contains the exact Model D architecture used for the supplied
+checkpoint. It does NOT require train_model_D.py or any training files.
 
-Expected repository layout:
-
-semicon_submission/
-├── models/
-│   └── model.pt
-├── training/
-│   └── train_model_D.py
-└── inference/
-    └── localize.py
+Required files:
+    localize.py
+    model.pt
 
 Usage:
+    python localize.py ^
+      --reference "D:\reference.png" ^
+      --search "D:\search.png" ^
+      --model "D:\model.pt"
 
-python inference\localize.py ^
-  --reference "path\to\reference.png" ^
-  --search "path\to\search.png"
-
-The reference and search images must be 1000 x 1000 pixels.
-
-The output is the predicted target center in the original
-1000 x 1000 image coordinate system.
+Reference and search images must be 1000 x 1000 pixels.
+The predicted center is reported in the original 1000 x 1000 coordinate
+system.
 """
 
 import argparse
-import importlib.util
 import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
-
 
 RAW_SIZE = 1000
 INTERNAL_SIZE = 128
 
-HERE = Path(__file__).resolve().parent
-REPO_ROOT = HERE.parent
 
-DEFAULT_MODEL = (
-    REPO_ROOT
-    / "models"
-    / "model.pt"
-)
+# ============================================================
+# SPATIAL ENCODER
+# ============================================================
 
-TRAIN_MODEL_D = (
-    REPO_ROOT
-    / "training"
-    / "train_model_D.py"
-)
+class SpatialEncoder(nn.Module):
 
+    def __init__(self):
 
-def load_original_model_class():
+        super().__init__()
 
-    if not TRAIN_MODEL_D.exists():
-        raise FileNotFoundError(
-            "The exact Model D training file was not found:\n"
-            f"{TRAIN_MODEL_D}\n\n"
-            "Place train_model_D.py inside the repository's "
-            "training folder."
+        self.layers = nn.Sequential(
+
+            nn.Conv2d(
+                1,
+                32,
+                kernel_size=3,
+                stride=2,
+                padding=1
+            ),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(
+                32,
+                64,
+                kernel_size=3,
+                stride=2,
+                padding=1
+            ),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(
+                64,
+                96,
+                kernel_size=3,
+                stride=2,
+                padding=1
+            ),
+            nn.BatchNorm2d(96),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(
+                96,
+                128,
+                kernel_size=3,
+                stride=2,
+                padding=1
+            ),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(
+                128,
+                128,
+                kernel_size=3,
+                stride=1,
+                padding=1
+            ),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True)
         )
 
-    spec = importlib.util.spec_from_file_location(
-        "semicon_original_model_D",
-        str(TRAIN_MODEL_D),
+    def forward(self, x):
+        return self.layers(x)
+
+
+# ============================================================
+# CORRELATION
+# ============================================================
+
+def depthwise_correlation(
+    search,
+    reference
+):
+    """
+    Spatially preserves matching information.
+
+    search:
+        [B,C,H,W]
+
+    reference:
+        [B,C,H,W]
+
+    Returns:
+        [B,C,H,W]
+    """
+
+    # Normalize each feature vector at each spatial location.
+    search = F.normalize(
+        search,
+        dim=1
     )
 
-    if spec is None or spec.loader is None:
-        raise RuntimeError(
-            "Could not load train_model_D.py."
+    reference = F.normalize(
+        reference,
+        dim=1
+    )
+
+    # Element-wise feature similarity at corresponding
+    # spatial positions.
+    correlation = (
+        search * reference
+    ).sum(
+        dim=1,
+        keepdim=True
+    )
+
+    return correlation
+
+
+# ============================================================
+# MODEL D
+# ============================================================
+
+class ModelD(nn.Module):
+
+    def __init__(self):
+
+        super().__init__()
+
+        self.encoder = SpatialEncoder()
+
+        # Instead of global average pooling, keep the
+        # spatial correlation map.
+
+        self.correlation_head = nn.Sequential(
+
+            nn.Conv2d(
+                1,
+                32,
+                kernel_size=3,
+                padding=1
+            ),
+
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(
+                32,
+                16,
+                kernel_size=3,
+                padding=1
+            ),
+
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(
+                16,
+                1,
+                kernel_size=1
+            )
         )
 
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    def forward(
+        self,
+        reference,
+        search
+    ):
 
-    if not hasattr(module, "ModelD"):
-        raise RuntimeError(
-            "train_model_D.py does not contain a ModelD class."
+        reference_features = (
+            self.encoder(
+                reference
+            )
         )
 
-    return module.ModelD
+        search_features = (
+            self.encoder(
+                search
+            )
+        )
+
+        correlation = depthwise_correlation(
+            search_features,
+            reference_features
+        )
+
+        score_map = self.correlation_head(
+            correlation
+        )
+
+        return score_map
+
+
+
+# ============================================================
+# SOFT-ARGMAX
+# ============================================================
+
+def soft_argmax(
+    score_map,
+    temperature=0.05
+):
+
+    b, _, h, w = score_map.shape
+
+    logits = (
+        score_map
+        .reshape(
+            b,
+            -1
+        )
+        / temperature
+    )
+
+    probabilities = F.softmax(
+        logits,
+        dim=1
+    )
+
+    ys = torch.linspace(
+        0.0,
+        1.0,
+        h,
+        device=score_map.device
+    )
+
+    xs = torch.linspace(
+        0.0,
+        1.0,
+        w,
+        device=score_map.device
+    )
+
+    yy, xx = torch.meshgrid(
+        ys,
+        xs,
+        indexing="ij"
+    )
+
+    xx = xx.reshape(
+        1,
+        -1
+    )
+
+    yy = yy.reshape(
+        1,
+        -1
+    )
+
+    pred_x = (
+        probabilities * xx
+    ).sum(
+        dim=1
+    )
+
+    pred_y = (
+        probabilities * yy
+    ).sum(
+        dim=1
+    )
+
+    return torch.stack(
+        [
+            pred_x,
+            pred_y
+        ],
+        dim=1
+    )
+
+
 
 
 def read_image(path):
-
     path = Path(path)
 
     if not path.exists():
-        raise FileNotFoundError(
-            f"Image not found:\n{path}"
-        )
+        raise FileNotFoundError(f"Image not found:\n{path}")
 
-    image = cv2.imread(
-        str(path),
-        cv2.IMREAD_GRAYSCALE,
-    )
+    image = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
 
     if image is None:
-        raise RuntimeError(
-            f"Could not read image:\n{path}"
-        )
+        raise RuntimeError(f"Could not read image:\n{path}")
 
-    if image.shape != (
-        RAW_SIZE,
-        RAW_SIZE,
-    ):
+    if image.shape != (RAW_SIZE, RAW_SIZE):
         raise ValueError(
             f"Expected a {RAW_SIZE} x {RAW_SIZE} image, "
             f"but received {image.shape}:\n{path}"
@@ -118,35 +315,21 @@ def read_image(path):
 
     image = cv2.resize(
         image,
-        (
-            INTERNAL_SIZE,
-            INTERNAL_SIZE,
-        ),
+        (INTERNAL_SIZE, INTERNAL_SIZE),
         interpolation=cv2.INTER_AREA,
     )
 
-    image = (
-        image.astype(np.float32)
-        / 255.0
-    )
+    image = image.astype(np.float32) / 255.0
 
-    return torch.from_numpy(
-        image
-    ).unsqueeze(0).unsqueeze(0)
+    return torch.from_numpy(image).unsqueeze(0).unsqueeze(0)
 
 
-def load_model(
-    model_class,
-    model_path,
-    device,
-):
-
+def load_model(model_path, device):
     model_path = Path(model_path)
 
     if not model_path.exists():
         raise FileNotFoundError(
-            "Model checkpoint not found:\n"
-            f"{model_path}"
+            f"Model checkpoint not found:\n{model_path}"
         )
 
     checkpoint = torch.load(
@@ -154,123 +337,21 @@ def load_model(
         map_location=device,
     )
 
-    if (
-        isinstance(checkpoint, dict)
-        and "model_state_dict" in checkpoint
-    ):
-        state_dict = checkpoint[
-            "model_state_dict"
-        ]
+    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+        state_dict = checkpoint["model_state_dict"]
     else:
         state_dict = checkpoint
 
-    model = model_class().to(device)
-
-    model.load_state_dict(
-        state_dict,
-        strict=True,
-    )
-
+    model = ModelD().to(device)
+    model.load_state_dict(state_dict, strict=True)
     model.eval()
 
     return model
 
 
-def extract_score_map(output):
-
-    # Different training scripts sometimes return a tuple.
-    # The first tensor is the spatial score map.
-    if isinstance(output, (tuple, list)):
-        output = output[0]
-
-    if not torch.is_tensor(output):
-        raise RuntimeError(
-            "Model D did not return a tensor score map."
-        )
-
-    if output.ndim == 3:
-        output = output.unsqueeze(1)
-
-    if output.ndim != 4:
-        raise RuntimeError(
-            "Unexpected Model D output shape: "
-            f"{tuple(output.shape)}"
-        )
-
-    return output
-
-
-def soft_argmax(
-    score_map,
-    temperature=0.05,
-):
-
-    batch, _, height, width = (
-        score_map.shape
-    )
-
-    probabilities = F.softmax(
-        score_map.reshape(
-            batch,
-            -1,
-        )
-        / temperature,
-        dim=1,
-    )
-
-    yy, xx = torch.meshgrid(
-        torch.arange(
-            height,
-            device=score_map.device,
-            dtype=torch.float32,
-        ),
-        torch.arange(
-            width,
-            device=score_map.device,
-            dtype=torch.float32,
-        ),
-        indexing="ij",
-    )
-
-    xx = xx.reshape(1, -1)
-    yy = yy.reshape(1, -1)
-
-    px = (
-        probabilities * xx
-    ).sum(dim=1)
-
-    py = (
-        probabilities * yy
-    ).sum(dim=1)
-
-    # Convert the internal score-map coordinate to the
-    # original 1000 x 1000 image coordinate system.
-    if width > 1:
-        px = (
-            px
-            / (width - 1)
-            * (RAW_SIZE - 1)
-        )
-
-    if height > 1:
-        py = (
-            py
-            / (height - 1)
-            * (RAW_SIZE - 1)
-        )
-
-    return torch.stack(
-        [px, py],
-        dim=1,
-    )
-
-
 def main():
-
     parser = argparse.ArgumentParser(
-        description=(
-            "SEMICON Model D localization inference."
-        )
+        description="SEMICON Model D self-contained localization inference."
     )
 
     parser.add_argument(
@@ -287,152 +368,69 @@ def main():
 
     parser.add_argument(
         "--model",
-        default=str(DEFAULT_MODEL),
-        help=(
-            "Path to the trained Model D checkpoint. "
-            "Default: ../models/model.pt"
-        ),
+        required=True,
+        help="Path to the trained Model D checkpoint.",
     )
 
     parser.add_argument(
         "--temperature",
         type=float,
         default=0.05,
-        help=(
-            "Soft-argmax temperature. "
-            "Default: 0.05"
-        ),
+        help="Soft-argmax temperature. Default: 0.05",
     )
 
     args = parser.parse_args()
 
     print("=" * 72)
-    print(
-        "SEMICON / DRIFT-SENSE"
-    )
-    print(
-        "MODEL D LOCALIZATION INFERENCE"
-    )
+    print("SEMICON / DRIFT-SENSE")
+    print("MODEL D LOCALIZATION INFERENCE")
     print("=" * 72)
-
-    print(
-        f"Reference : {args.reference}"
-    )
-
-    print(
-        f"Search    : {args.search}"
-    )
-
-    print(
-        f"Model     : {args.model}"
-    )
-
-    print(
-        f"Input     : {RAW_SIZE} x {RAW_SIZE} px"
-    )
-
-    print(
-        "Method    : Model D spatial correlation"
-    )
-
-    print(
-        "Decoder   : Soft-Argmax"
-    )
-
+    print(f"Reference : {args.reference}")
+    print(f"Search    : {args.search}")
+    print(f"Model     : {args.model}")
+    print(f"Input     : {RAW_SIZE} x {RAW_SIZE} px")
+    print("Method    : Model D spatial correlation")
+    print("Decoder   : Soft-Argmax")
     print()
 
     device = torch.device(
-        "cuda"
-        if torch.cuda.is_available()
-        else "cpu"
+        "cuda" if torch.cuda.is_available() else "cpu"
     )
 
-    print(
-        f"Device    : {device}"
-    )
-
+    print(f"Device    : {device}")
     print()
 
     try:
+        reference = read_image(args.reference).to(device)
+        search = read_image(args.search).to(device)
 
-        reference = read_image(
-            args.reference
-        ).to(device)
-
-        search = read_image(
-            args.search
-        ).to(device)
-
-        ModelD = load_original_model_class()
-
-        model = load_model(
-            ModelD,
-            args.model,
-            device,
-        )
+        model = load_model(args.model, device)
 
         with torch.no_grad():
-
-            output = model(
-                reference,
-                search,
-            )
-
-            score_map = extract_score_map(
-                output
-            )
-
+            score_map = model(reference, search)
             prediction = soft_argmax(
                 score_map,
                 temperature=args.temperature,
             )
 
-        predicted_x = float(
-            prediction[0, 0].cpu()
-        )
-
-        predicted_y = float(
-            prediction[0, 1].cpu()
-        )
+        # soft_argmax returns normalized coordinates in [0, 1].
+        # Convert them back to the original 1000 x 1000 pixel coordinates.
+        predicted_x = float(prediction[0, 0].cpu()) * (RAW_SIZE - 1)
+        predicted_y = float(prediction[0, 1].cpu()) * (RAW_SIZE - 1)
 
     except Exception as exc:
-
-        print(
-            "INFERENCE FAILED"
-        )
-
+        print("INFERENCE FAILED")
         print("-" * 72)
-
-        print(
-            str(exc)
-        )
-
+        print(str(exc))
         return 1
 
-    print(
-        "RESULT"
-    )
-
+    print("RESULT")
     print("-" * 72)
-
-    print(
-        f"Predicted center X : "
-        f"{predicted_x:.2f} px"
-    )
-
-    print(
-        f"Predicted center Y : "
-        f"{predicted_y:.2f} px"
-    )
-
+    print(f"Predicted center X : {predicted_x:.2f} px")
+    print(f"Predicted center Y : {predicted_y:.2f} px")
     print()
-
     print("=" * 72)
-
-    print(
-        "LOCALIZATION COMPLETE"
-    )
-
+    print("LOCALIZATION COMPLETE")
     print("=" * 72)
 
     return 0
