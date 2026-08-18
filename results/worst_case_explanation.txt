@@ -1,0 +1,17 @@
+SEMICON / DRIFT-SENSE - MODEL D WORST CASE
+=======================================================
+
+Test samples evaluated: 210
+Reference file: 0021_aug_04_noise.png
+Search file: 0021_aug_04_noise.png
+Ground truth center: (142.5000, 928.5000) px
+Predicted center: (722.1912, 318.3807) px
+Localization error: 841.5981 px
+Augmentation: noise
+Target block: 3_0
+Ambiguous: False
+
+Visualization:
+Green cross = ground-truth center
+Red circle = predicted center
+Magenta line = localization displacement

@@ -1,0 +1,17 @@
+SEMICON / DRIFT-SENSE - MODEL D WORST CASE
+=======================================================
+
+Test Case: 0021_aug_04_noise.png
+Augmentation: Noise
+Target Block: 3_0
+Ambiguous: No
+
+Ground-Truth Center: (142.50, 928.50) px
+Predicted Center: (722.19, 318.38) px
+Localization Error: 841.60 px
+
+This is the worst-performing sample among the 210 test images. The model predicted a location far from the actual target, resulting in an error of 841.60 pixels. The sample is labelled as non-ambiguous, indicating that the failure is associated with the effect of noise on the image features rather than inherent target ambiguity.
+
+The noise degradation reduces the reliability of the spatial features extracted from the reference and search images. Consequently, the spatial correlation response is concentrated around an incorrect region, leading to an inaccurate soft-argmax prediction.
+
+Key Observation: The case highlights a limitation of the current Model D in handling strong noise conditions and indicates that improving noise robustness is an important direction for future model development.
