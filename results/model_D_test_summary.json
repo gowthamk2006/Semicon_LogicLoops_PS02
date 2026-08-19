@@ -1,0 +1,217 @@
+{
+  "model": "Model D",
+  "test_samples": 210,
+  "checkpoint": "/content/drive/MyDrive/semicon/checkpoints/model_D/model_D_best.pt",
+  "mean_error_px": 396.21030248028137,
+  "median_error_px": 409.4335617552352,
+  "min_error_px": 41.20194533767664,
+  "max_error_px": 841.5981397927841,
+  "within_1_px_percent": 0.0,
+  "within_2_px_percent": 0.0,
+  "within_5_px_percent": 0.0,
+  "within_10_px_percent": 0.0,
+  "best_samples": [
+    {
+      "index": 11,
+      "reference_file": "0021_aug_05_blur.png",
+      "search_file": "0021_aug_05_blur.png",
+      "true_x": 643.5,
+      "true_y": 439.5,
+      "pred_x": 631.4942016601562,
+      "pred_y": 478.9139709472656,
+      "error_px": 41.20194533767664
+    },
+    {
+      "index": 49,
+      "reference_file": "0071_aug_01_rotation.png",
+      "search_file": "0071_aug_01_rotation.png",
+      "true_x": 695.9183,
+      "true_y": 383.4152,
+      "pred_x": 675.8421020507812,
+      "pred_y": 434.77978515625,
+      "error_px": 55.14865666877002
+    },
+    {
+      "index": 138,
+      "reference_file": "0218_aug_06_brightness_contrast.png",
+      "search_file": "0218_aug_06_brightness_contrast.png",
+      "true_x": 636.0,
+      "true_y": 380.0,
+      "pred_x": 667.7722778320312,
+      "pred_y": 305.0862121582031,
+      "error_px": 81.37292699320541
+    },
+    {
+      "index": 22,
+      "reference_file": "0023_aug_02_shear.png",
+      "search_file": "0023_aug_02_shear.png",
+      "true_x": 588.3587,
+      "true_y": 370.5,
+      "pred_x": 620.7297973632812,
+      "pred_y": 451.44073486328125,
+      "error_px": 87.17390954127862
+    },
+    {
+      "index": 119,
+      "reference_file": "0200_aug_01_rotation.png",
+      "search_file": "0200_aug_01_rotation.png",
+      "true_x": 435.3295,
+      "true_y": 435.6554,
+      "pred_x": 518.6356201171875,
+      "pred_y": 492.20367431640625,
+      "error_px": 100.6857337319583
+    },
+    {
+      "index": 58,
+      "reference_file": "0088_aug_03_drift.png",
+      "search_file": "0088_aug_03_drift.png",
+      "true_x": 562.3921,
+      "true_y": 405.0326,
+      "pred_x": 650.7494506835938,
+      "pred_y": 467.12457275390625,
+      "error_px": 107.99275207297661
+    },
+    {
+      "index": 36,
+      "reference_file": "0045_aug_02_shear.png",
+      "search_file": "0045_aug_02_shear.png",
+      "true_x": 666.2535,
+      "true_y": 568.5,
+      "pred_x": 590.0143432617188,
+      "pred_y": 490.7245788574219,
+      "error_px": 108.910170113124
+    },
+    {
+      "index": 88,
+      "reference_file": "0125_aug_05_blur.png",
+      "search_file": "0125_aug_05_blur.png",
+      "true_x": 589.5,
+      "true_y": 572.5,
+      "pred_x": 481.2430114746094,
+      "pred_y": 558.8563842773438,
+      "error_px": 109.1133530534832
+    },
+    {
+      "index": 207,
+      "reference_file": "0295_aug_05_blur.png",
+      "search_file": "0295_aug_05_blur.png",
+      "true_x": 585.5,
+      "true_y": 389.5,
+      "pred_x": 586.7906494140625,
+      "pred_y": 507.399658203125,
+      "error_px": 117.90672237121902
+    },
+    {
+      "index": 133,
+      "reference_file": "0218_aug_01_rotation.png",
+      "search_file": "0218_aug_01_rotation.png",
+      "true_x": 630.9713,
+      "true_y": 623.1931,
+      "pred_x": 695.5983276367188,
+      "pred_y": 520.35400390625,
+      "error_px": 121.46000323784263
+    }
+  ],
+  "worst_samples": [
+    {
+      "index": 10,
+      "reference_file": "0021_aug_04_noise.png",
+      "search_file": "0021_aug_04_noise.png",
+      "true_x": 142.5,
+      "true_y": 928.5,
+      "pred_x": 722.1912231445312,
+      "pred_y": 318.3807373046875,
+      "error_px": 841.5981397927841
+    },
+    {
+      "index": 3,
+      "reference_file": "0018_aug_04_noise.png",
+      "search_file": "0018_aug_04_noise.png",
+      "true_x": 85.0,
+      "true_y": 921.0,
+      "pred_x": 646.0900268554688,
+      "pred_y": 328.8177795410156,
+      "error_px": 815.7829371005524
+    },
+    {
+      "index": 131,
+      "reference_file": "0208_aug_06_brightness_contrast.png",
+      "search_file": "0208_aug_06_brightness_contrast.png",
+      "true_x": 376.5,
+      "true_y": 840.5,
+      "pred_x": 753.3523559570312,
+      "pred_y": 202.60540771484375,
+      "error_px": 740.8962201665026
+    },
+    {
+      "index": 127,
+      "reference_file": "0208_aug_02_shear.png",
+      "search_file": "0208_aug_02_shear.png",
+      "true_x": 80.6083,
+      "true_y": 625.5,
+      "pred_x": 746.800048828125,
+      "pred_y": 305.4889831542969,
+      "error_px": 739.0659626239707
+    },
+    {
+      "index": 156,
+      "reference_file": "0238_aug_03_drift.png",
+      "search_file": "0238_aug_03_drift.png",
+      "true_x": 133.5249,
+      "true_y": 171.2926,
+      "pred_x": 663.5913696289062,
+      "pred_y": 672.8196411132812,
+      "error_px": 729.7258630422078
+    },
+    {
+      "index": 114,
+      "reference_file": "0194_aug_03_drift.png",
+      "search_file": "0194_aug_03_drift.png",
+      "true_x": 357.3499,
+      "true_y": 920.9084,
+      "pred_x": 681.1483764648438,
+      "pred_y": 291.850341796875,
+      "error_px": 707.5022925413318
+    },
+    {
+      "index": 136,
+      "reference_file": "0218_aug_04_noise.png",
+      "search_file": "0218_aug_04_noise.png",
+      "true_x": 390.0,
+      "true_y": 946.0,
+      "pred_x": 737.5292358398438,
+      "pred_y": 349.2610168457031,
+      "error_px": 690.5606300531837
+    },
+    {
+      "index": 43,
+      "reference_file": "0046_aug_02_shear.png",
+      "search_file": "0046_aug_02_shear.png",
+      "true_x": 74.1459,
+      "true_y": 148.0,
+      "pred_x": 668.8998413085938,
+      "pred_y": 489.1033630371094,
+      "error_px": 685.6265419142787
+    },
+    {
+      "index": 139,
+      "reference_file": "0218_aug_07_scaling.png",
+      "search_file": "0218_aug_07_scaling.png",
+      "true_x": 107.8164,
+      "true_y": 74.5639,
+      "pred_x": 590.8011474609375,
+      "pred_y": 544.7493286132812,
+      "error_px": 674.0538580559869
+    },
+    {
+      "index": 104,
+      "reference_file": "0172_aug_07_scaling.png",
+      "search_file": "0172_aug_07_scaling.png",
+      "true_x": 132.6623,
+      "true_y": 877.0556,
+      "pred_x": 720.0693359375,
+      "pred_y": 574.3702392578125,
+      "error_px": 660.8066687591066
+    }
+  ]
+}

@@ -17,5 +17,7 @@ augmented_datasets/
 
 *.csv
 *.json
+!results/*.csv
+!results/*.json
 
 .ipynb_checkpoints/
